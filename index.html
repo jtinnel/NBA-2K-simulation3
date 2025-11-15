@@ -383,6 +383,7 @@
             workSessions: 0,
             anger: 0,
             fatigue: 0,
+            justTouchedGrass: false,
             gameStarted: false
         };
 
@@ -598,6 +599,16 @@
             playBtn.onclick = playGame;
             choicesDiv.appendChild(playBtn);
 
+            // Touch Grass (only if fatigue >= 50)
+            if (gameState.fatigue >= 50) {
+                const grassBtn = document.createElement('button');
+                grassBtn.className = 'choice-btn';
+                grassBtn.style.background = 'linear-gradient(135deg, #20bf6b 0%, #0fb9b1 100%)';
+                grassBtn.innerHTML = '🌿 Touch Grass <span class="choice-description">Reset fatigue, but opponents +3 OVR & double fatigue if you lose next game!</span>';
+                grassBtn.onclick = touchGrass;
+                choicesDiv.appendChild(grassBtn);
+            }
+
             // Evaluate
             if (gameState.moneySpent > 70) {
                 const evalBtn = document.createElement('button');
@@ -657,7 +668,7 @@
             
             if (gameState.overall > 99) gameState.overall = 99;
             
-            const oppIncrease = Math.ceil(pkg.ovrGain * 0.3);
+            const oppIncrease = Math.ceil(pkg.ovrGain * 0.2);
             gameState.avgOpponent += oppIncrease;
             if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
 
@@ -678,7 +689,7 @@
         function grindGames() {
             const expenses = 15;
             const vcEarned = 15000;
-            const ovrGain = 2.5;
+            const ovrGain = 3;
             
             gameState.budget -= expenses;
             gameState.vcOwned += vcEarned;
@@ -687,17 +698,17 @@
             gameState.grindSessions++;
             
             const ovrDiff = gameState.avgOpponent - gameState.overall;
-            let fatigueGain = 15 + Math.max(0, Math.floor(ovrDiff * 0.5));
+            let fatigueGain = 10 + Math.max(0, Math.floor(ovrDiff * 0.3));
             gameState.fatigue += fatigueGain;
             if (gameState.fatigue > 100) gameState.fatigue = 100;
             
-            gameState.avgOpponent += 2;
+            gameState.avgOpponent += 1;
             if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
 
             updateStats();
 
             document.getElementById('storyText').innerHTML = `
-                <p>You grinded for 5 hours. Earned ${vcEarned.toLocaleString()} VC. Overall: ${gameState.overall.toFixed(1)}</p>
+                <p>You grinded for 5 hours. Earned ${vcEarned.toLocaleString()} VC. Overall: ${gameState.overall}</p>
                 <div class="alert-box">💸 Expenses: -$${expenses}. Budget: $${gameState.budget}</div>
                 <div class="alert-box warning">😓 Fatigue +${fatigueGain} (now ${gameState.fatigue})</div>
             `;
@@ -712,15 +723,25 @@
             const earned = 50;
             const expenses = 10;
             const netGain = earned - expenses;
-            const fatigueGain = 25;
+            const fatigueGain = 15;
             
             gameState.budget += netGain;
             gameState.hoursPlayed += 8;
             gameState.workSessions++;
             gameState.fatigue += fatigueGain;
             if (gameState.fatigue > 100) gameState.fatigue = 100;
-            gameState.avgOpponent += 5;
-            if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
+            
+            // 50/50 chance opponents also work or they grind
+            const opponentsWorked = Math.random() < 0.5;
+            let oppMessage = '';
+            
+            if (opponentsWorked) {
+                oppMessage = '⚠️ While you worked, opponents also worked to earn money. No OVR change.';
+            } else {
+                gameState.avgOpponent += 3;
+                if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
+                oppMessage = `⚠️ While you worked, sweaty opponents grinded VC! Opponents now ${gameState.avgOpponent} (+3 OVR).`;
+            }
 
             updateStats();
 
@@ -728,7 +749,7 @@
                 <p>You worked and earned $${earned}!</p>
                 <div class="alert-box">💸 Expenses: -$${expenses}. Net: +$${netGain}. Budget: $${gameState.budget}</div>
                 <div class="alert-box warning">😓 Work fatigue +${fatigueGain}. Fatigue now ${gameState.fatigue}</div>
-                <div class="alert-box">⚠️ While you worked, opponents bought VC! Opponents now ${gameState.avgOpponent}</div>
+                <div class="alert-box">${oppMessage}</div>
             `;
 
             setTimeout(showMainChoices, 100);
@@ -747,14 +768,24 @@
                 gameState.vcOwned += 500;
                 gameState.anger = Math.max(0, gameState.anger - 10);
                 gameState.lossStreak = 0; // Reset loss streak
+                gameState.justTouchedGrass = false; // Reset grass flag on win
                 if (ovrDiff >= 0) {
                     gameState.fatigue = Math.max(0, gameState.fatigue - 5);
                 }
+
+                // Both gain OVR from playing, winner gets more
+                const yourGain = 1;
+                const oppGain = 1;
+                gameState.overall += yourGain;
+                gameState.avgOpponent += oppGain;
+                if (gameState.overall > 99) gameState.overall = 99;
+                if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
 
                 document.getElementById('storyText').innerHTML = `
                     <div class="alert-box info">🏆 YOU WON! +500 VC. Record: ${gameState.gamesWon}-${gameState.gamesLost}</div>
                     <p>Great game! You're feeling confident.</p>
                     <div class="alert-box info">😊 Anger decreased to ${gameState.anger}. Loss streak reset!</div>
+                    <div class="alert-box info">📈 You gained +${yourGain} OVR (${gameState.overall}). Opponent gained +${oppGain} OVR (${gameState.avgOpponent})</div>
                 `;
             } else {
                 gameState.gamesLost++;
@@ -765,15 +796,33 @@
                 gameState.anger = Math.min(100, gameState.anger + angerInc);
                 
                 // Stacking fatigue based on loss streak
-                let fatigueInc = 5 * gameState.lossStreak;
+                let fatigueInc = 3 * gameState.lossStreak;
+                
+                // Double fatigue if just touched grass
+                if (gameState.justTouchedGrass) {
+                    fatigueInc *= 2;
+                    gameState.justTouchedGrass = false;
+                }
+                
                 gameState.fatigue = Math.min(100, gameState.fatigue + fatigueInc);
 
+                // Both gain OVR from playing, loser gets less
+                const yourGain = 1;
+                const oppGain = 1;
+                gameState.overall += yourGain;
+                gameState.avgOpponent += oppGain;
+                if (gameState.overall > 99) gameState.overall = 99;
+                if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
+
                 let streakMsg = gameState.lossStreak > 1 ? ` ${gameState.lossStreak} losses in a row!` : '';
+                let grassMsg = fatigueInc > 10 ? ' <div class="alert-box">🌿 GRASS COMEDOWN! Fatigue doubled from losing right after touching grass!</div>' : '';
 
                 document.getElementById('storyText').innerHTML = `
                     <div class="alert-box">😤 YOU LOST. Record: ${gameState.gamesWon}-${gameState.gamesLost}</div>
                     <p>You got destroyed. Teammates quit. Someone typed "trash".${streakMsg}</p>
                     <div class="alert-box">😡 Anger +${angerInc} (${gameState.anger}). Fatigue +${fatigueInc} (${gameState.fatigue})</div>
+                    <div class="alert-box warning">📉 You gained +${yourGain} OVR (${gameState.overall}). Opponent gained +${oppGain} OVR (${gameState.avgOpponent})</div>
+                    ${grassMsg}
                 `;
                 
                 if (gameState.lossStreak >= 3) {
@@ -782,6 +831,31 @@
             }
 
             updateStats();
+            setTimeout(showMainChoices, 2500);
+        }
+
+        function touchGrass() {
+            const expenses = 10;
+            const oldFatigue = gameState.fatigue;
+            
+            gameState.fatigue = 0;
+            gameState.justTouchedGrass = true;
+            gameState.budget -= expenses;
+            gameState.hoursPlayed += 2;
+            gameState.avgOpponent += 3;
+            if (gameState.avgOpponent > 99) gameState.avgOpponent = 99;
+
+            updateStats();
+
+            document.getElementById('storyText').innerHTML = `
+                <div class="alert-box info">🌿 You went outside and touched grass!</div>
+                <p>You took a break from the game. The fresh air and sunlight did you good. You feel refreshed and ready to play again.</p>
+                <div class="alert-box info">😌 Fatigue reset from ${oldFatigue} to 0! You feel alive again.</div>
+                <div class="alert-box">💸 Time away cost $${expenses} in expenses.</div>
+                <div class="alert-box warning">⚠️ While you were outside, sweaty players grinded VC. Opponents now ${gameState.avgOpponent}!</div>
+                <div class="alert-box warning">⚠️ WARNING: If you lose your next game, you'll get DOUBLE fatigue from the comedown!</div>
+            `;
+
             setTimeout(showMainChoices, 2500);
         }
 
@@ -852,7 +926,7 @@
                         <div class="ending-stat-row"><span>Total Spent:</span><span>$${gameState.moneySpent}</span></div>
                         <div class="ending-stat-row"><span>Final Budget:</span><span>$${gameState.budget}</span></div>
                         <div class="ending-stat-row"><span>VC Owned:</span><span>${gameState.vcOwned.toLocaleString()}</span></div>
-                        <div class="ending-stat-row"><span>Final Overall:</span><span>${gameState.overall.toFixed(1)}</span></div>
+                        <div class="ending-stat-row"><span>Final Overall:</span><span>${gameState.overall}</span></div>
                         <div class="ending-stat-row"><span>Hours Played:</span><span>${gameState.hoursPlayed}</span></div>
                         <div class="ending-stat-row"><span>Games:</span><span>${gameState.gamesWon}W-${gameState.gamesLost}L</span></div>
                         <div class="ending-stat-row"><span>Anger:</span><span>${gameState.anger}</span></div>
